@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.10.5](https://github.com/StackOneHQ/hub/compare/hub-v1.10.4...hub-v1.10.5) (2026-07-08)
+
+
+### Bug Fixes
+
+* **ENG-1143:** bump @stackone/malachite to 0.52.2 for the Dropdown selection fix ([#181](https://github.com/StackOneHQ/hub/issues/181)) ([9233618](https://github.com/StackOneHQ/hub/commit/9233618e1d1bf73e5a9f7f1488d1785cb798c5bd))
+
+## [1.10.4](https://github.com/StackOneHQ/hub/compare/hub-v1.10.3...hub-v1.10.4) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ENG-1104:** bump @stackone/malachite for the unified glass footer treatment ([#179](https://github.com/StackOneHQ/hub/issues/179)) ([b592e47](https://github.com/StackOneHQ/hub/commit/b592e47503a90089646b808b1f40d6ef2625a61b))
+
 ## [1.10.3](https://github.com/StackOneHQ/hub/compare/hub-v1.10.2...hub-v1.10.3) (2026-07-01)
 
 
