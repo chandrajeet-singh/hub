@@ -43,6 +43,9 @@ const FORMAT_PATTERN_TEST_VECTORS: Record<string, { accepts: string[]; rejects: 
             '2026-07-06T10:30:00Z',
             '2026-07-06T10:30:00+01:00',
             '2026-07-06T10:30:00.123Z',
+            '2026-07-06T10:30:00z',
+            '2026-07-06T10:30:00+0100',
+            '2026-07-06T10:30:00+01',
         ],
         rejects: [
             '2026-07-06',
@@ -74,6 +77,16 @@ for (const [format, vectors] of Object.entries(FORMAT_PATTERN_TEST_VECTORS)) {
             failures++;
             console.error(`FAIL: ${format} should reject "${value}"`);
         }
+    }
+}
+
+// Reverse coverage: a format added to the registry (mirroring a new core format) with no
+// vectors here would otherwise pass silently — the exact drift D3 exists to catch (a field
+// with an unrecognised format renders unvalidated). Fail if any registry key lacks vectors.
+for (const format of Object.keys(FORMAT_PATTERNS)) {
+    if (!FORMAT_PATTERN_TEST_VECTORS[format]) {
+        failures++;
+        console.error(`FAIL: no vectors for registry format "${format}"`);
     }
 }
 

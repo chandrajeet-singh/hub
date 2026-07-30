@@ -224,6 +224,7 @@ interface IntegrationFieldsProps {
     onChange: (data: Record<string, string>) => void;
     onValidationChange?: (isValid: boolean) => void;
     integrationName: string;
+    connectorKey?: string;
     editingSecrets?: Set<string>;
     setEditingSecrets?: (updater: (prev: Set<string>) => Set<string>) => void;
 }
@@ -277,6 +278,7 @@ export const IntegrationForm: React.FC<IntegrationFieldsProps> = ({
     error,
     onValidationChange,
     integrationName,
+    connectorKey,
     editingSecrets,
     setEditingSecrets,
 }) => {
@@ -285,7 +287,7 @@ export const IntegrationForm: React.FC<IntegrationFieldsProps> = ({
         typeof f.key === 'object' ? JSON.stringify(f.key) : String(f.key),
     );
     const { noticesBefore, noticesAfter } = partitionNotices(notices, fieldKeys);
-    const schema = useMemo(() => createFormSchema(fields), [fields]);
+    const schema = useMemo(() => createFormSchema(fields, connectorKey), [fields, connectorKey]);
 
     const defaultValues = useMemo(() => {
         const initialData: Record<string, string> = {};

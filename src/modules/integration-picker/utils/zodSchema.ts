@@ -6,6 +6,7 @@ import {
     FormatName,
     LegacyFieldValidation,
 } from '../types';
+import { isSecretPlaceholder } from './secretPlaceholder';
 
 // Local copy of the canonical `FORMAT_PATTERNS` registry from `@stackone/core`
 // (connect repo, `packages/core/src/connector/formatPatterns.ts`) — the hub
@@ -19,7 +20,7 @@ export const FORMAT_PATTERNS: Record<FormatName, RegExp> = {
     uri: /^[a-zA-Z][a-zA-Z0-9+.-]*:.+$/,
     uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     date: /^\d{4}-\d{2}-\d{2}$/,
-    datetime: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/,
+    datetime: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}(?::?\d{2})?)?$/,
 };
 
 interface ValidationRule {
@@ -31,19 +32,37 @@ function isLegacyValidation(validation: FieldValidation): validation is LegacyFi
     return validation.type !== undefined;
 }
 
+// Compile a pattern, degrading to null (no rule) on an invalid regex rather than throwing.
+// `createFormSchema` runs inside a render `useMemo`, so an uncompilable pattern would
+// otherwise throw during render and trip the error boundary — replacing the whole hub and
+// making the connector unlinkable. connect-sdk's build-time compile+ReDoS lint covers the
+// `connectors` repo, but not the legacy TS path or whatever a direct-API surface returns
+// (D1), nor the ReDoS blind spot (overlapping alternation) — so guard here too.
+function compileRegex(source: string): RegExp | null {
+    try {
+        return new RegExp(source);
+    } catch {
+        return null;
+    }
+}
+
 // V2/legacy TS connectors — behaviour preserved as-is, delete wholesale when V2 retires
 function resolveLegacyRule(validation: LegacyFieldValidation): ValidationRule | null {
     if (validation.type === 'html-pattern') {
+        const pattern = compileRegex(validation.pattern);
+        if (!pattern) return null;
         return {
-            pattern: new RegExp(validation.pattern),
+            pattern,
             errorMessage:
                 validation.error || `Please match the required format: ${validation.pattern}`,
         };
     }
 
     if (validation.type === 'domain') {
+        const pattern = compileRegex(`.*${validation.pattern}\\.com.*`);
+        if (!pattern) return null;
         return {
-            pattern: new RegExp(`.*${validation.pattern}\\.com.*`),
+            pattern,
             errorMessage:
                 validation.error || `Please enter a valid ${validation.pattern}.com domain`,
         };
@@ -56,16 +75,31 @@ function resolveFalconRule(
     validation: FalconFieldValidation,
     label: string,
 ): ValidationRule | null {
-    if (validation.format && FORMAT_PATTERNS[validation.format]) {
+    if (validation.format) {
+        const pattern = FORMAT_PATTERNS[validation.format];
+        if (!pattern) {
+            // Unknown format: connect-sdk derives its `format` enum from the canonical
+            // registry keys, so a format it accepts is missing here — this copy has drifted
+            // from `@stackone/core`. Fail open (failing closed would lock customers out on a
+            // hub-version skew) but loudly, since the field then renders unvalidated on the
+            // only enforcement layer. `scripts/check-format-vectors.ts` should catch this in
+            // CI; this warns at runtime if a drift ever reaches a customer.
+            console.warn(
+                `[stackone-hub] no pattern for format "${validation.format}" — field validation skipped; hub FORMAT_PATTERNS has drifted from @stackone/core`,
+            );
+            return null;
+        }
         return {
-            pattern: FORMAT_PATTERNS[validation.format],
+            pattern,
             errorMessage: validation.errorMessage || `Must be a valid ${validation.format}`,
         };
     }
 
     if (validation.pattern) {
+        const pattern = compileRegex(validation.pattern);
+        if (!pattern) return null;
         return {
-            pattern: new RegExp(validation.pattern),
+            pattern,
             errorMessage: validation.errorMessage || `${label} format is invalid`,
         };
     }
@@ -85,8 +119,8 @@ type RecordValidationFailure = (field: ConnectorConfigField, validation: FieldVa
 
 // RFC step 9 (client half): the hub is a customer-embedded package with no analytics
 // dependency, so validation failures are surfaced as a DOM CustomEvent — count-only
-// (field key + rule kind, never the value; values may be credentials). Hosts or
-// StackOne scripts can listen via
+// (connector key + field key + rule kind, never the value; values may be
+// credentials). Hosts or StackOne scripts can listen via
 // window.addEventListener('stackone-hub:field-validation-failed', ...).
 //
 // The form re-validates on every keystroke (mode: 'onTouched' + default onChange
@@ -94,7 +128,7 @@ type RecordValidationFailure = (field: ConnectorConfigField, validation: FieldVa
 // field for the life of that schema — a "this field failed at least once" friction
 // signal, not one event per keystroke. No-op outside the browser (e.g. the npm-test
 // vector check).
-function createValidationFailureRecorder(): RecordValidationFailure {
+function createValidationFailureRecorder(connector?: string): RecordValidationFailure {
     const firedFields = new Set<string>();
 
     return (field, validation) => {
@@ -105,6 +139,7 @@ function createValidationFailureRecorder(): RecordValidationFailure {
         window.dispatchEvent(
             new CustomEvent('stackone-hub:field-validation-failed', {
                 detail: {
+                    ...(connector ? { connector } : {}),
                     field: field.key,
                     ruleKind: isLegacyValidation(validation)
                         ? 'legacy'
@@ -141,9 +176,17 @@ function createFieldSchema(
     const validation = field.validation;
     const rule = resolveValidationRule(field);
     if (rule && validation) {
-        // Only record a non-empty value that failed — empty is "required", not a format
-        // failure (the optional branch below short-circuits empty before testing).
         const testWithMetric = (val: string) => {
+            // A saved secret is pre-filled as the redacted sentinel (`__secretvalue:**…`),
+            // not the real value the customer typed. RHF validates `defaultValues` eagerly,
+            // so without this guard the sentinel would fail the rule before the user touches
+            // anything — blocking reconnect (gating the Connect button) and emitting a
+            // failure event for an untouched field. Treat it as valid.
+            if (isSecretPlaceholder(val)) return true;
+            // The `&& val` guard is load-bearing: zod 4 accumulates all checks (it does not
+            // short-circuit on `.min(1)`), so this predicate runs on empty values too. Empty
+            // is a "required" failure, not a format failure — without `&& val` every
+            // untouched required field would emit a spurious event.
             const ok = rule.pattern.test(val);
             if (!ok && val) {
                 recordFailure(field, validation);
@@ -163,12 +206,12 @@ function createFieldSchema(
     return schema;
 }
 
-export function createFormSchema(fields: ConnectorConfigField[]) {
+export function createFormSchema(fields: ConnectorConfigField[], connector?: string) {
     const schemaShape: Record<string, z.ZodTypeAny> = {};
 
     // One recorder per schema build so the failure event dedupes per field for the life
     // of this schema instead of firing on every keystroke.
-    const recordFailure = createValidationFailureRecorder();
+    const recordFailure = createValidationFailureRecorder(connector);
 
     for (const field of fields) {
         schemaShape[field.key] = createFieldSchema(field, recordFailure);
