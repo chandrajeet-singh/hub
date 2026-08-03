@@ -16,13 +16,24 @@ const FORMAT_PATTERN_TEST_VECTORS: Record<string, { accepts: string[]; rejects: 
         rejects: ['not-an-email', 'a b@example.com', '@example.com', 'john@'],
     },
     url: {
-        accepts: ['https://api.example.com', 'http://x.io/path?q=1'],
+        accepts: [
+            'https://api.example.com',
+            'http://x.io/path?q=1',
+            'http://localhost:3000',
+            'https://1.2.3.4/p?q=1',
+            'https://x.io/a?b=c#d',
+        ],
         rejects: [
             'example.com',
             'ftp://host',
             '',
             'https://api.example.com extra text',
             'https://foo bar/baz',
+            'https://',
+            'https://?q=1',
+            'https:///path',
+            'https://#frag',
+            'https://a b',
         ],
     },
     uri: {

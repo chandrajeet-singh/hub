@@ -16,7 +16,7 @@ import { isSecretPlaceholder } from './secretPlaceholder';
 // fails CI. Exported for that script.
 export const FORMAT_PATTERNS: Record<FormatName, RegExp> = {
     email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-    url: /^https?:\/\/\S+$/,
+    url: /^https?:\/\/[^\s/?#]+\S*$/,
     uri: /^[a-zA-Z][a-zA-Z0-9+.-]*:.+$/,
     uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     date: /^\d{4}-\d{2}-\d{2}$/,
