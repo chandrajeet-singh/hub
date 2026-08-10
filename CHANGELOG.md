@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.11.1](https://github.com/StackOneHQ/hub/compare/hub-v1.11.0...hub-v1.11.1) (2026-08-07)
+
+
+### Bug Fixes
+
+* **ENG-1541:** bump @stackone/malachite to ^0.67.1 ([#195](https://github.com/StackOneHQ/hub/issues/195)) ([f02158b](https://github.com/StackOneHQ/hub/commit/f02158ba7c2fe4641e4c1037333ec0810f8eeb21))
+
+## [1.11.0](https://github.com/StackOneHQ/hub/compare/hub-v1.10.6...hub-v1.11.0) (2026-08-06)
+
+
+### Features
+
+* **ENG-1528:** send x-hub-version header on every request ([#193](https://github.com/StackOneHQ/hub/issues/193)) ([6c348ae](https://github.com/StackOneHQ/hub/commit/6c348aeeda32564d19f6f1eb6be7bb606958df98))
+
+## [1.10.6](https://github.com/StackOneHQ/hub/compare/hub-v1.10.5...hub-v1.10.6) (2026-08-05)
+
+
+### Bug Fixes
+
+* **ENG-1529:** release the malachite 0.66.0 bundling and placeholder fixes ([#191](https://github.com/StackOneHQ/hub/issues/191)) ([d85cb55](https://github.com/StackOneHQ/hub/commit/d85cb55c9d8173109ff857dd0f31c056cfd89afa))
+
 ## [1.10.5](https://github.com/StackOneHQ/hub/compare/hub-v1.10.4...hub-v1.10.5) (2026-07-08)
 
 
