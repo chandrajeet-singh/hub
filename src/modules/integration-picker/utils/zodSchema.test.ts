@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectorConfigField, FieldValidation } from '../types';
-import { createFormSchema } from './zodSchema';
+import { createFormSchema, createValidationFailureRecorder } from './zodSchema';
 
 // Minimal factory: builds a single-field connector config. Only the properties the
 // Zod builder reads (`key`, `label`, `type`, `required`, `validation`) actually matter;
@@ -203,5 +203,43 @@ describe('createFormSchema — robustness', () => {
         ]) {
             expect(schema.safeParse({ field: value }).success, value).toBe(true);
         }
+    });
+});
+
+describe('createValidationFailureRecorder — lifetime', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('dispatches at most once per field across schema rebuilds when the recorder outlives the schema', () => {
+        const dispatchEvent = vi.fn();
+        vi.stubGlobal('window', { dispatchEvent });
+
+        // The form rebuilds its schema on every keystroke (fields gets a new identity
+        // via watch → onChange(formData) → the fields memo), so the recorder is owned
+        // by the component and passed in. Two builds with failing parses simulate two
+        // keystrokes; the dedupe must survive the rebuild.
+        const recordFailure = createValidationFailureRecorder('workday');
+        const fields = [field({ validation: { pattern: '^[a-z]+$' } })];
+        createFormSchema(fields, recordFailure).safeParse({ field: 'BAD1' });
+        createFormSchema(fields, recordFailure).safeParse({ field: 'BAD12' });
+
+        expect(dispatchEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it('carries the connector, field and rule kind on the event detail (never the value)', () => {
+        const dispatchEvent = vi.fn();
+        vi.stubGlobal('window', { dispatchEvent });
+
+        const recordFailure = createValidationFailureRecorder('workday');
+        createFormSchema([field({ validation: { pattern: '^[a-z]+$' } })], recordFailure).safeParse(
+            { field: 'BAD1' },
+        );
+
+        expect(dispatchEvent.mock.calls[0][0].detail).toEqual({
+            connector: 'workday',
+            field: 'field',
+            ruleKind: 'pattern',
+        });
     });
 });

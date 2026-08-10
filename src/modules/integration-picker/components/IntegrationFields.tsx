@@ -22,7 +22,7 @@ import useDeepCompareEffect from 'use-deep-compare-effect';
 import { AuthenticationNotice, ConnectorConfigField } from '../types';
 import { partitionNotices } from '../utils/partitionNotices';
 import { formatSecretPlaceholder, isSecretPlaceholder } from '../utils/secretPlaceholder';
-import { createFormSchema } from '../utils/zodSchema';
+import { createFormSchema, createValidationFailureRecorder } from '../utils/zodSchema';
 
 const isInputField = (type: string | undefined): type is 'text' | 'number' | 'password' => {
     return type === 'text' || type === 'number' || type === 'password';
@@ -288,7 +288,18 @@ export const IntegrationForm: React.FC<IntegrationFieldsProps> = ({
         typeof f.key === 'object' ? JSON.stringify(f.key) : String(f.key),
     );
     const { noticesBefore, noticesAfter } = partitionNotices(notices, fieldKeys);
-    const schema = useMemo(() => createFormSchema(fields, connectorKey), [fields, connectorKey]);
+
+    // One recorder for the life of this form session (re-created only when the
+    // connector changes), NOT per schema build. `fields` gets a new identity on every
+    // keystroke (watch → onChange(formData) → useIntegrationPicker's fields memo), so
+    // the schema below rebuilds per keystroke — a recorder owned by that memo would
+    // reset its per-field dedupe each rebuild and dispatch one event per keystroke.
+    // Mirrors the unified-cloud DynamicForm and embedded-widget wiring.
+    const recordFailure = useMemo(
+        () => createValidationFailureRecorder(connectorKey),
+        [connectorKey],
+    );
+    const schema = useMemo(() => createFormSchema(fields, recordFailure), [fields, recordFailure]);
 
     const defaultValues = useMemo(() => {
         const initialData: Record<string, string> = {};

@@ -62,6 +62,11 @@ export interface ConnectorConfigField {
     };
     value?: string | number;
     condition?: string;
+    // Weaker than core's AuthenticationField, which puts `validation?: never` on the
+    // `select` branch (values already constrained by `options[]`) — this flat copy
+    // cannot express that, so a select field with `validation` would build a rule
+    // here. Exposure is nil in practice: connect-sdk rejects the combination at
+    // build time, before a config can reach the hub.
     validation?: FieldValidation;
     display?: boolean;
 }

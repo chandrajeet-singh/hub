@@ -115,7 +115,10 @@ function resolveValidationRule(field: ConnectorConfigField): ValidationRule | nu
         : resolveFalconRule(field.validation, field.label);
 }
 
-type RecordValidationFailure = (field: ConnectorConfigField, validation: FieldValidation) => void;
+export type RecordValidationFailure = (
+    field: ConnectorConfigField,
+    validation: FieldValidation,
+) => void;
 
 // RFC step 9 (client half): the hub is a customer-embedded package with no analytics
 // dependency, so validation failures are surfaced as a DOM CustomEvent — count-only
@@ -123,12 +126,15 @@ type RecordValidationFailure = (field: ConnectorConfigField, validation: FieldVa
 // credentials). Hosts or StackOne scripts can listen via
 // window.addEventListener('stackone-hub:field-validation-failed', ...).
 //
-// The form re-validates on every keystroke (mode: 'onTouched' + default onChange
-// reValidate), so a recorder bound to one schema build dispatches at most once per
-// field for the life of that schema — a "this field failed at least once" friction
-// signal, not one event per keystroke. No-op outside the browser (e.g. the npm-test
-// vector check).
-function createValidationFailureRecorder(connector?: string): RecordValidationFailure {
+// Lifetime: the recorder must be owned by the rendering component for the life of
+// the form session (useMemo keyed on the connector) and passed into
+// createFormSchema — NOT created per schema build. The schema does not survive a
+// keystroke (keystroke → onChange(formData) → new `fields` identity in
+// useIntegrationPicker → schema useMemo rebuilds), so a recorder owned by the
+// schema would reset its per-field dedupe on every rebuild and dispatch one event
+// per keystroke instead of at most once per field. No-op outside the browser
+// (e.g. the npm-test vector check).
+export function createValidationFailureRecorder(connector?: string): RecordValidationFailure {
     const firedFields = new Set<string>();
 
     return (field, validation) => {
@@ -206,12 +212,17 @@ function createFieldSchema(
     return schema;
 }
 
-export function createFormSchema(fields: ConnectorConfigField[], connector?: string) {
-    const schemaShape: Record<string, z.ZodTypeAny> = {};
+// `recordFailure` is owned by the caller and must outlive this schema (see
+// createValidationFailureRecorder's lifetime note) — schemas are rebuilt per
+// keystroke, so a recorder created here would count keystrokes, not fields.
+// Defaults to a no-op for callers without telemetry (tests, the vector check).
+const noopRecorder: RecordValidationFailure = () => undefined;
 
-    // One recorder per schema build so the failure event dedupes per field for the life
-    // of this schema instead of firing on every keystroke.
-    const recordFailure = createValidationFailureRecorder(connector);
+export function createFormSchema(
+    fields: ConnectorConfigField[],
+    recordFailure: RecordValidationFailure = noopRecorder,
+) {
+    const schemaShape: Record<string, z.ZodTypeAny> = {};
 
     for (const field of fields) {
         schemaShape[field.key] = createFieldSchema(field, recordFailure);
