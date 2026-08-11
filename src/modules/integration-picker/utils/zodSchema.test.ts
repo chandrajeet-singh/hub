@@ -243,3 +243,35 @@ describe('createValidationFailureRecorder — lifetime', () => {
         });
     });
 });
+
+describe('createFormSchema — ReDoS guard', () => {
+    it('treats a nested-quantifier pattern as no rule instead of hanging per keystroke', () => {
+        // `^(a+)+$` backtracks exponentially on a near-miss value; the lint copy in
+        // regexSafety.ts drops the rule (fail open) so the tab never hangs.
+        const schema = createFormSchema([field({ validation: { pattern: '^(a+)+$' } })]);
+        const start = Date.now();
+
+        const result = schema.safeParse({ field: `${'a'.repeat(60)}!` });
+
+        expect(result.success).toBe(true);
+        expect(Date.now() - start).toBeLessThan(1000);
+    });
+
+    it('treats a repeated-alternation pattern as no rule (the star-height blind spot)', () => {
+        const schema = createFormSchema([field({ validation: { pattern: '(a|a)+$' } })]);
+        const start = Date.now();
+
+        const result = schema.safeParse({ field: `${'a'.repeat(40)}!` });
+
+        expect(result.success).toBe(true);
+        expect(Date.now() - start).toBeLessThan(1000);
+    });
+
+    it('still applies a safe legacy html-pattern rule (guard is not over-broad)', () => {
+        const schema = createFormSchema([
+            field({ validation: { type: 'html-pattern', pattern: '^[0-9]+$' } }),
+        ]);
+
+        expect(schema.safeParse({ field: 'abc' }).success).toBe(false);
+    });
+});

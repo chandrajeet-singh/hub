@@ -20,7 +20,7 @@
         "./dist/webcomponent.js"
     ],
     "scripts": {
-        "test": "npx -y tsx scripts/check-format-vectors.ts && vitest run",
+        "test": "tsx scripts/check-format-vectors.ts && vitest run",
         "build": "rollup -c",
         "verify:build": "node scripts/verify-build.mjs",
         "dev": "cd dev/vite && npm run dev",
@@ -79,6 +79,7 @@
         "rollup-plugin-peer-deps-external": "^2.2.4",
         "rollup-plugin-postcss": "^4.0.2",
         "tslib": "^2.8.1",
+        "tsx": "^4.23.12",
         "typescript": "^5.8.3",
         "vitest": "^4.1.10"
     },

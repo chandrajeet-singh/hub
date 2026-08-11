@@ -38,7 +38,13 @@ const FORMAT_PATTERN_TEST_VECTORS: Record<string, { accepts: string[]; rejects: 
     },
     uri: {
         accepts: ['https://api.example.com', 'mailto:x@y.z', 'urn:isbn:0451450523'],
-        rejects: ['no-scheme-here', '://missing', ''],
+        rejects: [
+            'no-scheme-here',
+            '://missing',
+            '',
+            'urn:isbn:0451450523 and some trailing prose',
+            'mailto:a@b.c <-- paste error',
+        ],
     },
     uuid: {
         accepts: ['123e4567-e89b-12d3-a456-426614174000', '123E4567-E89B-12D3-A456-426614174000'],

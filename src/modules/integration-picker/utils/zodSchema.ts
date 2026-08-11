@@ -6,6 +6,7 @@ import {
     FormatName,
     LegacyFieldValidation,
 } from '../types';
+import { hasCatastrophicBacktrackingRisk } from './regexSafety';
 import { isSecretPlaceholder } from './secretPlaceholder';
 
 // Local copy of the canonical `FORMAT_PATTERNS` registry from `@stackone/core`
@@ -20,8 +21,11 @@ export const FORMAT_PATTERNS: Record<FormatName, RegExp> = {
     // non-matching input — and this pattern runs on every keystroke.
     // Language-identical to the overlapping form (fuzz-verified in @stackone/core).
     email: /^[^\s@]+@(?=[^\s@]+\.[^\s@])[^\s@]+$/,
-    url: /^https?:\/\/[^\s/?#]+\S*$/,
-    uri: /^[a-zA-Z][a-zA-Z0-9+.-]*:.+$/,
+    // Host and path/query/fragment split on a disjoint `[/?#]` boundary so the engine
+    // can never backtrack between them — the overlapping `[^\s/?#]+\S*` form is
+    // quadratic on long non-matching input, and this pattern runs on every keystroke.
+    url: /^https?:\/\/[^\s/?#]+(?:[/?#]\S*)?$/,
+    uri: /^[a-zA-Z][a-zA-Z0-9+.-]*:\S+$/,
     uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     date: /^\d{4}-\d{2}-\d{2}$/,
     datetime: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}(?::?\d{2})?)?$/,
@@ -36,13 +40,18 @@ function isLegacyValidation(validation: FieldValidation): validation is LegacyFi
     return validation.type !== undefined;
 }
 
-// Compile a pattern, degrading to null (no rule) on an invalid regex rather than throwing.
-// `createFormSchema` runs inside a render `useMemo`, so an uncompilable pattern would
-// otherwise throw during render and trip the error boundary — replacing the whole hub and
-// making the connector unlinkable. connect-sdk's build-time compile+ReDoS lint covers the
-// `connectors` repo, but not the legacy TS path or whatever a direct-API surface returns
-// (D1), nor the ReDoS blind spot (overlapping alternation) — so guard here too.
+// Compile a pattern, degrading to null (no rule) rather than breaking the form, for two
+// distinct hazards: an uncompilable pattern would throw inside the render `useMemo` and
+// trip the error boundary (whole hub replaced, connector unlinkable), and a
+// catastrophic-backtracking pattern would hang the tab at match time — the rule runs on
+// every keystroke, and only the compile guard could ever catch the first hazard, not the
+// second. connect-sdk rejects both at connector build time, but that gate covers neither
+// connectors built before it existed nor the legacy TS path, so re-guard both here.
+// Fail open: a skipped rule degrades to today's no-validation behaviour.
 function compileRegex(source: string): RegExp | null {
+    if (hasCatastrophicBacktrackingRisk(source)) {
+        return null;
+    }
     try {
         return new RegExp(source);
     } catch {
