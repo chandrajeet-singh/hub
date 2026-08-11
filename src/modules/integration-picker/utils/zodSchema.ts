@@ -15,7 +15,11 @@ import { isSecretPlaceholder } from './secretPlaceholder';
 // asserts this copy against the canonical accept/reject vectors so a drifted copy
 // fails CI. Exported for that script.
 export const FORMAT_PATTERNS: Record<FormatName, RegExp> = {
-    email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+    // The lookahead pins the required interior dot without the overlapping
+    // `[^\s@]+\.[^\s@]+` tail, whose mutual backtracking is quadratic on long
+    // non-matching input — and this pattern runs on every keystroke.
+    // Language-identical to the overlapping form (fuzz-verified in @stackone/core).
+    email: /^[^\s@]+@(?=[^\s@]+\.[^\s@])[^\s@]+$/,
     url: /^https?:\/\/[^\s/?#]+\S*$/,
     uri: /^[a-zA-Z][a-zA-Z0-9+.-]*:.+$/,
     uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
