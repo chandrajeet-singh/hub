@@ -11,13 +11,14 @@ import { isSecretPlaceholder } from './secretPlaceholder';
 
 // Local copy of the canonical `FORMAT_PATTERNS` registry from `@stackone/core`
 // (connect repo, `packages/core/src/connector/formatPatterns.ts`) — the hub
-// deliberately carries no @stackone package dependencies for this feature. Keep in
-// sync when a format changes. `scripts/check-format-vectors.ts` (run via `npm test`)
-// gates this copy three ways: pinned accept/reject vectors, pinned canonical regex
-// sources (catches language-identical rewrites the vectors cannot see), and — when
-// reachable — connect main's live registry (the only check that catches an upstream
-// format added after the pins). The pins are themselves hub-local snapshots: bump
-// them together with this copy. Exported for that script.
+// deliberately carries no @stackone package dependencies for this feature.
+// `scripts/check-format-vectors.ts` (run via `npm test`) gates this copy two ways:
+// pinned accept/reject vectors, and pinned canonical regex sources (catches
+// language-identical rewrites the vectors cannot see). Both pins are hub-local
+// snapshots and there is no live comparison (connect is a private repo), so a format
+// ADDED upstream is NOT caught automatically — sync this copy, the vectors and the
+// pinned sources together, manually, when connect's registry changes. Exported for
+// that script.
 export const FORMAT_PATTERNS: Record<FormatName, RegExp> = {
     // The lookahead pins the required interior dot without the overlapping
     // `[^\s@]+\.[^\s@]+` tail, whose mutual backtracking is quadratic on long
