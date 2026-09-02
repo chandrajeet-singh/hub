@@ -289,12 +289,11 @@ export const IntegrationForm: React.FC<IntegrationFieldsProps> = ({
     );
     const { noticesBefore, noticesAfter } = partitionNotices(notices, fieldKeys);
 
-    // One recorder for the life of this form session (re-created only when the
-    // connector changes), NOT per schema build. `fields` gets a new identity on every
-    // keystroke (watch → onChange(formData) → useIntegrationPicker's fields memo), so
-    // the schema below rebuilds per keystroke — a recorder owned by that memo would
-    // reset its per-field dedupe each rebuild and dispatch one event per keystroke.
-    // Mirrors the unified-cloud DynamicForm and embedded-widget wiring.
+    // One recorder for the life of this form session (re-created only when the connector
+    // changes), NOT per schema build. The schema rebuilds when the connector or account
+    // data changes (useIntegrationPicker's `fields` memo), so a recorder owned by that memo
+    // would reset its per-field dedupe on those rebuilds; owning it here keeps the dedupe for
+    // the whole session. Mirrors the unified-cloud DynamicForm and embedded-widget wiring.
     const recordFailure = useMemo(
         () => createValidationFailureRecorder(connectorKey),
         [connectorKey],

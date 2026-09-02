@@ -38,7 +38,20 @@ export const FORMAT_PATTERNS: Record<FormatName, RegExp> = {
 interface ValidationRule {
     pattern: RegExp;
     errorMessage: string;
+    // Author-supplied patterns (legacy html-pattern/domain, Falcon pattern) pass the
+    // ReDoS lint but can still backtrack quadratically on long input (adjacent unbounded
+    // quantifiers, a shape the star-height lint deliberately misses), so their input is
+    // length-capped. FORMAT_PATTERNS are canonical + linear and never capped.
+    capInput?: boolean;
 }
+
+// The star-height lint (regexSafety.ts, canonical connect-sdk copy) catches exponential
+// backtracking; it does not catch the quadratic "adjacent unbounded quantifier" shape,
+// which some live legacy patterns have. Bound the value fed to an author pattern so a
+// pathological one can't hang the tab on crafted long input — the same mitigation the
+// canonical lint's own docstring recommends. Auth values (tenant, key, url) are far
+// shorter; a value over the cap fails open (skips the rule), matching the degrade elsewhere.
+const MAX_PATTERN_INPUT_LENGTH = 512;
 
 function isLegacyValidation(validation: FieldValidation): validation is LegacyFieldValidation {
     return validation.type !== undefined;
@@ -51,14 +64,22 @@ function isLegacyValidation(validation: FieldValidation): validation is LegacyFi
 // every keystroke, and only the compile guard could ever catch the first hazard, not the
 // second. connect-sdk rejects both at connector build time, but that gate covers neither
 // connectors built before it existed nor the legacy TS path, so re-guard both here.
-// Fail open: a skipped rule degrades to today's no-validation behaviour.
+// Fail open but loudly: a skipped rule degrades to today's no-validation behaviour, and
+// each path warns so the field never renders unvalidated silently on the only enforcement
+// layer (matches the unknown-format branch below).
 function compileRegex(source: string): RegExp | null {
     if (hasCatastrophicBacktrackingRisk(source)) {
+        console.warn(
+            `[stackone-hub] pattern "${source}" risks catastrophic backtracking — field validation skipped`,
+        );
         return null;
     }
     try {
         return new RegExp(source);
     } catch {
+        console.warn(
+            `[stackone-hub] pattern "${source}" failed to compile — field validation skipped`,
+        );
         return null;
     }
 }
@@ -70,6 +91,7 @@ function resolveLegacyRule(validation: LegacyFieldValidation): ValidationRule | 
         if (!pattern) return null;
         return {
             pattern,
+            capInput: true,
             errorMessage:
                 validation.error || `Please match the required format: ${validation.pattern}`,
         };
@@ -80,6 +102,7 @@ function resolveLegacyRule(validation: LegacyFieldValidation): ValidationRule | 
         if (!pattern) return null;
         return {
             pattern,
+            capInput: true,
             errorMessage:
                 validation.error || `Please enter a valid ${validation.pattern}.com domain`,
         };
@@ -117,6 +140,7 @@ function resolveFalconRule(
         if (!pattern) return null;
         return {
             pattern,
+            capInput: true,
             errorMessage: validation.errorMessage || `${label} format is invalid`,
         };
     }
@@ -143,14 +167,13 @@ export type RecordValidationFailure = (
 // credentials). Hosts or StackOne scripts can listen via
 // window.addEventListener('stackone-hub:field-validation-failed', ...).
 //
-// Lifetime: the recorder must be owned by the rendering component for the life of
-// the form session (useMemo keyed on the connector) and passed into
-// createFormSchema — NOT created per schema build. The schema does not survive a
-// keystroke (keystroke → onChange(formData) → new `fields` identity in
-// useIntegrationPicker → schema useMemo rebuilds), so a recorder owned by the
-// schema would reset its per-field dedupe on every rebuild and dispatch one event
-// per keystroke instead of at most once per field. No-op outside the browser
-// (e.g. the npm-test vector check).
+// Lifetime: the recorder must be owned by the rendering component for the life of the
+// form session (useMemo keyed on the connector) and passed into createFormSchema — NOT
+// created per schema build. The schema is rebuilt whenever the connector or account data
+// changes (useIntegrationPicker's `fields` memo, deps [connectorData, selectedIntegration,
+// accountData, hubData]), so a recorder owned by the schema would reset its per-field
+// dedupe on each of those rebuilds; owning it in the component keeps the dedupe for the
+// whole session. No-op outside the browser (e.g. the npm-test vector check).
 export function createValidationFailureRecorder(connector?: string): RecordValidationFailure {
     const firedFields = new Set<string>();
 
@@ -187,13 +210,20 @@ function createFieldSchema(
     }
 
     if (field.type === 'number') {
+        // Per the connector schema, number fields carry no `validation:`, so they never
+        // reach the rule section below. A saved secret pre-fills as the redacted sentinel
+        // and must pass on reconnect (same as string fields), so admit it alongside the
+        // numeric check — otherwise `/^\d+$/` rejects the sentinel and gates Connect.
+        const isNumericOrSecret = (val: string) => isSecretPlaceholder(val) || /^\d+$/.test(val);
         if (field.required) {
-            schema = schema.regex(/^\d+$/, 'Must be a valid number');
-        } else {
             return z
                 .string()
-                .refine((val) => val === '' || /^\d+$/.test(val), 'Must be a valid number');
+                .min(1, `${field.label} is required`)
+                .refine(isNumericOrSecret, 'Must be a valid number');
         }
+        return z
+            .string()
+            .refine((val) => val === '' || isNumericOrSecret(val), 'Must be a valid number');
     }
 
     const validation = field.validation;
@@ -206,6 +236,9 @@ function createFieldSchema(
             // anything — blocking reconnect (gating the Connect button) and emitting a
             // failure event for an untouched field. Treat it as valid.
             if (isSecretPlaceholder(val)) return true;
+            // An author pattern over the length cap can't be run safely (see
+            // MAX_PATTERN_INPUT_LENGTH); skip it (fail-open) rather than risk a hang.
+            if (rule.capInput && val.length > MAX_PATTERN_INPUT_LENGTH) return true;
             // The `&& val` guard is load-bearing: zod 4 accumulates all checks (it does not
             // short-circuit on `.min(1)`), so this predicate runs on empty values too. Empty
             // is a "required" failure, not a format failure — without `&& val` every

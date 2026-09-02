@@ -11,6 +11,12 @@
  * author patterns on every keystroke. `stackone validate` rejects them at connector
  * build time with the canonical lint; this copy re-guards stored patterns from
  * connectors built before that gate existed, and the legacy TS path that never had it.
+ *
+ * Catches EXPONENTIAL backtracking only. The quadratic "adjacent unbounded quantifier"
+ * shape (`^a+a+$`) is a deliberate false negative here, as in the canonical lint — some
+ * live legacy patterns have it. The caller bounds the input length instead
+ * (MAX_PATTERN_INPUT_LENGTH in zodSchema.ts), the canonical docstring's own recommendation
+ * for that shape.
  */
 export const hasCatastrophicBacktrackingRisk = (source: string): boolean => {
     const groups: { hasVariable: boolean; hasAlternation: boolean }[] = [];

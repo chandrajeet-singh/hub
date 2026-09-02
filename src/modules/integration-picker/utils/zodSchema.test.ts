@@ -193,6 +193,47 @@ describe('createFormSchema — robustness', () => {
         expect(schema.safeParse({ field: 'anything' }).success).toBe(true);
     });
 
+    it('warns (never fails dark) when a pattern is skipped for ReDoS or compile failure', () => {
+        // The client is the only enforcement layer, so a silently-dropped rule would render
+        // a field unvalidated with nobody noticing. Both fail-open paths must warn.
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        createFormSchema([field({ validation: { pattern: '^(a+)+$' } })]); // ReDoS-risky
+        createFormSchema([field({ validation: { pattern: '[' } })]); // uncompilable
+
+        expect(warn).toHaveBeenCalledTimes(2);
+        warn.mockRestore();
+    });
+
+    it('does not run a ReDoS-risky author pattern on every keystroke — degrades to no rule', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const schema = createFormSchema([field({ validation: { pattern: '^(a+)+$' } })]);
+
+        expect(schema.safeParse({ field: 'aaaa' }).success).toBe(true);
+        warn.mockRestore();
+    });
+
+    it('skips an author pattern for a value over the length cap (fail-open), but never caps a format rule', () => {
+        // Author patterns can backtrack quadratically (the star-height lint misses that
+        // shape), so a value past the cap is not run. FORMAT_PATTERNS are linear/safe and
+        // never capped — a long invalid value still fails.
+        const authorSchema = createFormSchema([field({ validation: { pattern: '^[a-z]+$' } })]);
+        expect(authorSchema.safeParse({ field: 'A'.repeat(513) }).success).toBe(true);
+
+        const formatSchema = createFormSchema([field({ validation: { format: 'email' } })]);
+        expect(formatSchema.safeParse({ field: 'x'.repeat(513) }).success).toBe(false);
+    });
+
+    it('accepts a saved-secret placeholder on a NUMBER field, so reconnect is not blocked', () => {
+        // The number branch returns before the string secret-placeholder short-circuit, so
+        // without its own guard a saved secret would fail `/^\d+$/` and gate Connect.
+        const schema = createFormSchema([field({ type: 'number', required: true, secret: true })]);
+
+        expect(schema.safeParse({ field: '__secretvalue:**redacted**abcd' }).success).toBe(true);
+        expect(schema.safeParse({ field: '42' }).success).toBe(true);
+        expect(schema.safeParse({ field: 'abc' }).success).toBe(false);
+    });
+
     it('accepts the widened datetime offsets synced from @stackone/core', () => {
         const schema = createFormSchema([field({ validation: { format: 'datetime' } })]);
 
@@ -215,10 +256,9 @@ describe('createValidationFailureRecorder — lifetime', () => {
         const dispatchEvent = vi.fn();
         vi.stubGlobal('window', { dispatchEvent });
 
-        // The form rebuilds its schema on every keystroke (fields gets a new identity
-        // via watch → onChange(formData) → the fields memo), so the recorder is owned
-        // by the component and passed in. Two builds with failing parses simulate two
-        // keystrokes; the dedupe must survive the rebuild.
+        // The schema rebuilds when the connector or account data changes (the fields memo),
+        // so the recorder is owned by the component and passed in. Two builds with failing
+        // parses simulate two rebuilds; the dedupe must survive them.
         const recordFailure = createValidationFailureRecorder('workday');
         const fields = [field({ validation: { pattern: '^[a-z]+$' } })];
         createFormSchema(fields, recordFailure).safeParse({ field: 'BAD1' });
